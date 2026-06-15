@@ -5,6 +5,7 @@ export interface BrandVoiceProfile {
   recurringThemes: string;
   titleStyle: string;
   notes: string;
+  competitorBlend: string;
 }
 
 export interface ProductFeature {

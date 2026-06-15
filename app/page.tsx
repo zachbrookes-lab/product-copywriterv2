@@ -13,6 +13,7 @@ const EMPTY_VOICE: BrandVoiceProfile = {
   recurringThemes: "",
   titleStyle: "",
   notes: "",
+  competitorBlend: "",
 };
 
 type StepStatus = "pending" | "active" | "done";
@@ -56,7 +57,7 @@ export default function Home() {
       if (!res.ok) {
         throw new Error(data.error || "Failed to analyze brand voice");
       }
-      setVoice(data.profile);
+      setVoice((prev) => ({ ...data.profile, competitorBlend: prev.competitorBlend }));
       setVoiceSourceUrl(data.sourceUrl);
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : "Unknown error");

@@ -38,6 +38,11 @@ const FIELDS: { key: keyof BrandVoiceProfile; label: string; hint: string }[] = 
     label: "Additional notes",
     hint: "Anything else about the voice",
   },
+  {
+    key: "competitorBlend",
+    label: "Competitor influence (optional)",
+    hint: "Optionally describe a competitor style to blend in, e.g. 'Lean toward CalDigit-style technical restraint — fewer hype words, more emphasis on build quality and reliability' or 'Blend in Anker-style plain reassurance — simple, low-friction language about convenience and support.' Leave blank to use the brand voice as-is.",
+  },
 ];
 
 export default function BrandVoiceEditor({ profile, onChange }: Props) {
@@ -51,7 +56,13 @@ export default function BrandVoiceEditor({ profile, onChange }: Props) {
           <p className="text-xs text-[var(--color-muted)] mb-1.5">{hint}</p>
           <textarea
             className="w-full border border-[var(--color-line)] rounded px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-            rows={key === "vocabulary" || key === "recurringThemes" ? 2 : 3}
+            rows={
+              key === "vocabulary" || key === "recurringThemes"
+                ? 2
+                : key === "competitorBlend"
+                ? 3
+                : 3
+            }
             value={profile[key]}
             onChange={(e) => onChange({ ...profile, [key]: e.target.value })}
           />

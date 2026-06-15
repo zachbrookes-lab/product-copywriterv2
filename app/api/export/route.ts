@@ -4,12 +4,20 @@ import {
   Document,
   Packer,
   Paragraph,
-  HeadingLevel,
   TextRun,
+  BorderStyle,
 } from "docx";
 import { GeneratedCopy, ProductInput } from "@/lib/types";
 
 export const maxDuration = 60;
+
+const FONT = "Arial";
+
+// Spacing values are in twentieths of a point (DXA). 240 DXA = 12pt.
+const SPACING_AFTER_PARAGRAPH = 200;
+const SPACING_AFTER_HEADING = 160;
+const SPACING_BEFORE_SECTION = 320;
+const SPACING_AFTER_SECTION_RULE = 240;
 
 function buildWorkbook(product: ProductInput, copy: GeneratedCopy): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
@@ -56,69 +64,119 @@ function buildWorkbook(product: ProductInput, copy: GeneratedCopy): XLSX.WorkBoo
 async function buildDocx(product: ProductInput, copy: GeneratedCopy): Promise<Buffer> {
   const children: Paragraph[] = [];
 
+  // --- Helper builders -----------------------------------------------
+
+  function title(text: string) {
+    return new Paragraph({
+      children: [new TextRun({ text, bold: true, size: 56, font: FONT })],
+      spacing: { after: SPACING_AFTER_HEADING },
+    });
+  }
+
+  function sectionHeading(text: string, isFirst = false) {
+    return new Paragraph({
+      children: [new TextRun({ text, bold: true, size: 32, font: FONT })],
+      spacing: {
+        before: isFirst ? 0 : SPACING_BEFORE_SECTION,
+        after: SPACING_AFTER_HEADING,
+      },
+    });
+  }
+
+  function subHeading(text: string) {
+    return new Paragraph({
+      children: [new TextRun({ text, bold: true, size: 26, font: FONT })],
+      spacing: { before: SPACING_AFTER_PARAGRAPH, after: 80 },
+    });
+  }
+
+  function body(text: string) {
+    return new Paragraph({
+      children: [new TextRun({ text, font: FONT, size: 22 })],
+      spacing: { after: SPACING_AFTER_PARAGRAPH },
+    });
+  }
+
+  // A horizontal rule with space above and below, used between major sections
+  function sectionDivider() {
+    return new Paragraph({
+      children: [],
+      spacing: { before: SPACING_BEFORE_SECTION, after: SPACING_AFTER_SECTION_RULE },
+      border: {
+        bottom: {
+          color: "CCCCCC",
+          space: 1,
+          style: BorderStyle.SINGLE,
+          size: 6,
+        },
+      },
+    });
+  }
+
+  // --- Document content ------------------------------------------------
+
+  children.push(title(`${product.productName} (${product.sku})`));
+
+  // Long Description
+  children.push(sectionHeading("Long Description", true));
+  copy.longDescription
+    .split("\n")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .forEach((para) => children.push(body(para)));
+
+  children.push(sectionDivider());
+
+  // Premium Image Headline
+  children.push(sectionHeading("Premium Image Headline"));
   children.push(
     new Paragraph({
-      text: `${product.productName} (${product.sku})`,
-      heading: HeadingLevel.TITLE,
+      children: [new TextRun({ text: copy.premiumHeadline, bold: true, size: 32, font: FONT })],
+      spacing: { after: SPACING_AFTER_PARAGRAPH },
     })
   );
 
-  children.push(
-    new Paragraph({ text: "Long Description", heading: HeadingLevel.HEADING_1 })
-  );
-  copy.longDescription.split("\n").forEach((para) => {
-    if (para.trim()) {
-      children.push(new Paragraph({ text: para.trim() }));
-    }
-  });
+  children.push(sectionDivider());
 
-  children.push(
-    new Paragraph({ text: "Premium Image Headline", heading: HeadingLevel.HEADING_1 })
-  );
-  children.push(
-    new Paragraph({
-      children: [new TextRun({ text: copy.premiumHeadline, bold: true, size: 32 })],
-    })
-  );
-
-  children.push(
-    new Paragraph({ text: "Feature Copy", heading: HeadingLevel.HEADING_1 })
-  );
+  // Feature Copy
+  children.push(sectionHeading("Feature Copy"));
   copy.featureCopy.forEach((f) => {
-    children.push(
-      new Paragraph({
-        children: [new TextRun({ text: f.title, bold: true })],
-        heading: HeadingLevel.HEADING_2,
-      })
-    );
-    children.push(new Paragraph({ text: f.description }));
+    children.push(subHeading(f.title));
+    children.push(body(f.description));
   });
 
-  children.push(
-    new Paragraph({ text: "Brand Target Audience", heading: HeadingLevel.HEADING_1 })
-  );
-  children.push(new Paragraph({ text: copy.brandTargetAudience }));
+  children.push(sectionDivider());
 
-  children.push(
-    new Paragraph({ text: "Product Target Audience", heading: HeadingLevel.HEADING_1 })
-  );
-  children.push(new Paragraph({ text: copy.productTargetAudience }));
+  // Brand Target Audience
+  children.push(sectionHeading("Brand Target Audience"));
+  children.push(body(copy.brandTargetAudience));
 
-  children.push(
-    new Paragraph({ text: "Suggested Blog Content (5)", heading: HeadingLevel.HEADING_1 })
-  );
-  copy.blogIdeas.forEach((idea, i) => {
-    children.push(new Paragraph({ text: `${i + 1}. ${idea}` }));
-  });
+  children.push(sectionDivider());
 
-  children.push(
-    new Paragraph({ text: "Suggested Educational Articles (5)", heading: HeadingLevel.HEADING_1 })
-  );
-  copy.educationalArticles.forEach((idea, i) => {
-    children.push(new Paragraph({ text: `${i + 1}. ${idea}` }));
-  });
+  // Product Target Audience
+  children.push(sectionHeading("Product Target Audience"));
+  children.push(body(copy.productTargetAudience));
+
+  children.push(sectionDivider());
+
+  // Suggested Blog Content
+  children.push(sectionHeading("Suggested Blog Content (5)"));
+  copy.blogIdeas.forEach((idea, i) => children.push(body(`${i + 1}. ${idea}`)));
+
+  children.push(sectionDivider());
+
+  // Suggested Educational Articles
+  children.push(sectionHeading("Suggested Educational Articles (5)"));
+  copy.educationalArticles.forEach((idea, i) => children.push(body(`${i + 1}. ${idea}`)));
 
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: FONT, size: 22 },
+        },
+      },
+    },
     sections: [{ children }],
   });
 
