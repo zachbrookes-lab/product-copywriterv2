@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getClient, MODEL } from "@/lib/anthropic";
 import { AudienceProfile, BrandVoiceProfile, CompetitorProduct, ProductInput } from "@/lib/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 function buildPrompt(
   product: ProductInput,
@@ -27,19 +27,16 @@ Features:
 ${featuresList}
 
 TASK 1: Research and describe the specific audience for THIS product.
-Use web search where helpful to ground claims (e.g. industry reports, forum discussions, reviews discussing who buys/uses products like this).
-Produce:
-- demographics: 3-4 bullet points about who buys this (role, industry, setup type, etc.), each with a "sourceUrl" linking to a page that supports/illustrates that point (a review, forum thread, industry article, etc.)
+Use a SMALL number of web searches (2-3 total for this whole task) to ground claims, e.g. one search for industry/buyer information and one for competitor products. Produce:
+- demographics: 3-4 bullet points about who buys this (role, industry, setup type, etc.). At most 2 of these need a "sourceUrl" linking to a page that supports/illustrates that point (a review, forum thread, industry article); the rest can omit sourceUrl.
 - psychographics: 3-4 bullet points about their values, priorities, and mindset (no source needed)
 - jobsToBeDone: 3-4 bullet points describing the practical tasks/goals this product helps with
 - persona: a short persona description, MAXIMUM 6 sentences, giving a rough feel for who this person is (name optional, role, context, what they care about)
 
-TASK 2: Find exactly 3 real, currently-sold competitor products that target a similar audience to the one you just described (direct competitors to "${product.productName}" or similar products in "${productCategory}"). For each:
+TASK 2: Find up to 3 real, currently-sold competitor products that target a similar audience to the one you just described (direct competitors to "${product.productName}" or similar products in "${productCategory}"). Reuse search results from Task 1 where possible rather than searching again per competitor. For each:
 - name: short competitor/brand name
 - productName: full product name
 - productUrl: direct URL to the product detail page
-- imageUrl: a direct URL to a product image if you can find one (best-effort, omit or leave empty if not confidently found)
-- price: the price shown on their page, as a string with currency symbol (e.g. "$249.99"), or omit if not found
 - summary: 2-3 sentence summary of the product in your own words (paraphrase, do not quote verbatim)
 - keyFeatures: 3-5 bullet points of its key features/claims (paraphrase)
 
@@ -57,8 +54,6 @@ Respond ONLY with a single JSON object (no markdown, no preamble, no code fences
       "name": "...",
       "productName": "...",
       "productUrl": "https://...",
-      "imageUrl": "https://...",
-      "price": "$...",
       "summary": "...",
       "keyFeatures": ["...", "..."]
     }
@@ -154,8 +149,6 @@ export async function POST(req: NextRequest) {
             name: c.name!,
             productName: c.productName ?? "",
             productUrl: c.productUrl!,
-            imageUrl: typeof c.imageUrl === "string" && c.imageUrl ? c.imageUrl : undefined,
-            price: typeof c.price === "string" && c.price ? c.price : undefined,
             summary: c.summary ?? "",
             keyFeatures: Array.isArray(c.keyFeatures) ? c.keyFeatures.filter((f) => typeof f === "string") : [],
           }))

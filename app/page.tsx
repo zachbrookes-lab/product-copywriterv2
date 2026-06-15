@@ -25,6 +25,26 @@ const EMPTY_VOICE: BrandVoiceProfile = {
 
 type StepStatus = "pending" | "active" | "done";
 
+// Safely parse a fetch Response as JSON. If the response isn't valid JSON
+// (e.g. an HTML error page from a timeout or server crash), this throws a
+// readable error instead of a raw "Unexpected token" JSON parse error.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function safeJson(res: Response): Promise<any> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    if (res.status === 504 || res.status === 502) {
+      throw new Error(
+        "The request timed out. This step can take a while (it runs web searches) — try again, or try a more specific product/category."
+      );
+    }
+    throw new Error(
+      `Server returned an unexpected response (status ${res.status}). Please try again.`
+    );
+  }
+}
+
 export default function Home() {
   // Step 1: Brand voice
   const [brandUrl, setBrandUrl] = useState("");
@@ -35,6 +55,8 @@ export default function Home() {
   const [brandTargetAudience, setBrandTargetAudience] = useState("");
   const [productCategory, setProductCategory] = useState("");
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
+  const [marketContextLoading, setMarketContextLoading] = useState(false);
+  const [marketContextError, setMarketContextError] = useState<string | null>(null);
 
   // Step 2: Product upload
   const [products, setProducts] = useState<ProductInput[]>([]);
@@ -70,7 +92,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: brandUrl }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || "Failed to analyze brand voice");
       }
@@ -83,11 +105,35 @@ export default function Home() {
       setVoiceSourceUrl(data.sourceUrl);
       setBrandTargetAudience(data.brandTargetAudience ?? "");
       setProductCategory(data.productCategory ?? "");
-      setMarketContext(data.marketContext ?? null);
+      // Reset market context, it's tied to the previous analysis
+      setMarketContext(null);
+      setMarketContextError(null);
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setVoiceLoading(false);
+    }
+  }
+
+  async function handleAnalyzeMarket() {
+    if (!productCategory) return;
+    setMarketContextLoading(true);
+    setMarketContextError(null);
+    try {
+      const res = await fetch("/api/market-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productCategory, profile: voice }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data.error || "Market analysis failed");
+      }
+      setMarketContext(data.marketContext ?? null);
+    } catch (err) {
+      setMarketContextError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setMarketContextLoading(false);
     }
   }
 
@@ -143,7 +189,7 @@ export default function Home() {
           productCategory,
         }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || "Research failed");
       }
@@ -174,7 +220,7 @@ export default function Home() {
           marketContextFull: marketContext?.fullContext ?? "",
         }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || "Generation failed");
       }
@@ -196,7 +242,7 @@ export default function Home() {
         body: JSON.stringify({ product: selectedProduct, copy, format }),
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = await safeJson(res);
         throw new Error(data.error || "Export failed");
       }
       const blob = await res.blob();
@@ -287,6 +333,25 @@ export default function Home() {
                 Brand target audience
               </p>
               <p className="text-sm">{brandTargetAudience}</p>
+            </div>
+          )}
+          {voiceSourceUrl && !marketContext && (
+            <div className="mb-4">
+              <button
+                onClick={handleAnalyzeMarket}
+                disabled={marketContextLoading || !productCategory}
+                className="px-4 py-2 rounded text-sm font-medium border border-[var(--color-line)] bg-white hover:bg-[var(--color-paper)] transition disabled:opacity-50"
+              >
+                {marketContextLoading ? "Analyzing market..." : "Analyze market positioning"}
+              </button>
+              <p className="text-xs text-[var(--color-muted)] mt-2">
+                Optional: research how other brands in your category write,
+                and get sliders to adjust your voice relative to the market.
+                Runs a few web searches.
+              </p>
+              {marketContextError && (
+                <p className="text-sm text-red-600 mt-2">{marketContextError}</p>
+              )}
             </div>
           )}
           <BrandVoiceEditor profile={voice} onChange={setVoice} marketContext={marketContext} />
@@ -440,25 +505,7 @@ export default function Home() {
               <div className="grid sm:grid-cols-3 gap-3">
                 {competitorProducts.map((c, i) => (
                   <div key={i} className="border border-[var(--color-line)] rounded-md p-3 bg-white flex flex-col">
-                    {c.imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={c.imageUrl}
-                        alt={c.productName || c.name}
-                        className="w-full h-24 object-contain mb-2 rounded bg-[var(--color-paper)]"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                        }}
-                      />
-                    )}
-                    <div className="flex items-baseline justify-between gap-2 mb-1">
-                      <p className="text-sm font-semibold leading-tight">{c.name}</p>
-                      {c.price && (
-                        <span className="text-xs font-medium whitespace-nowrap" style={{ color: "#3C3FBC" }}>
-                          {c.price}
-                        </span>
-                      )}
-                    </div>
+                    <p className="text-sm font-semibold leading-tight mb-1">{c.name}</p>
                     {c.productName && (
                       <p className="text-xs text-[var(--color-muted)] mb-2">{c.productName}</p>
                     )}

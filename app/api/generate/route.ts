@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getClient, MODEL } from "@/lib/anthropic";
 import { BrandVoiceProfile, ProductInput } from "@/lib/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 function buildPrompt(
   product: ProductInput,

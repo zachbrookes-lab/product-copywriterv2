@@ -92,10 +92,25 @@ setup needed.
 ## Cost estimate
 
 Using Claude Sonnet 4.6 at standard API rates, generating the full output set
-for one product costs roughly **$0.03–0.06** per run. Brand voice analysis is
-a separate, smaller call (~$0.01 or less). The "Find audience & competitors"
-step uses web search and costs a bit more, roughly **$0.02–0.05** per product
-depending on how many searches the model runs.
+for one product costs roughly **$0.03–0.06** per run. Brand voice analysis
+(step 1, no search) is a separate, smaller call (~$0.01 or less).
+
+Two steps use web search and cost more, scaling with how many searches the
+model runs:
+- **"Analyze market positioning"** (step 1, optional/opt-in): not run
+  automatically. Click it only if you want the technical/casual and
+  restrained/bold sliders. Roughly **$0.02–0.04** per brand (one-time, not
+  per product).
+- **"Research audience & competitors"** (step 3): roughly **$0.02–0.04** per
+  product. Competitor cards no longer include images or prices, which
+  reduces search volume for this step.
+
+### A note on timeouts
+
+Vercel's free (Hobby) plan caps serverless function duration at 60 seconds.
+Web-search-heavy steps occasionally approach this limit. If you see an error
+about an unexpected response or a timeout, wait a moment and try again, the
+underlying API call may still succeed on a retry.
 
 ### Cheaper testing with Haiku
 

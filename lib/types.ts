@@ -54,8 +54,6 @@ export interface CompetitorProduct {
   name: string;
   productName: string;
   productUrl: string;
-  imageUrl?: string;
-  price?: string;
   summary: string;
   keyFeatures: string[];
 }
