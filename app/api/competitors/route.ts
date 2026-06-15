@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClient, MODEL } from "@/lib/anthropic";
-import { BrandVoiceProfile, ProductInput } from "@/lib/types";
+import { AudienceProfile, BrandVoiceProfile, CompetitorProduct, ProductInput } from "@/lib/types";
 
-export const maxDuration = 90;
-
-interface CompetitorOption {
-  name: string;
-  productName: string;
-  productUrl: string;
-  mainPoints: string[];
-  voiceDescription: string;
-  blendInstruction: string;
-}
+export const maxDuration = 120;
 
 function buildPrompt(
   product: ProductInput,
@@ -23,10 +14,10 @@ function buildPrompt(
     .map((f, i) => `${i + 1}. ${f.feature}: ${f.benefit}`)
     .join("\n");
 
-  return `You are a competitive research analyst helping an e-commerce brand position a product.
+  return `You are a market research analyst helping an e-commerce brand understand a product's audience and competitive landscape.
 
 BRAND TONE (for context): ${voice.toneDescriptors}
-BRAND TARGET AUDIENCE: ${brandTargetAudience}
+BRAND TARGET AUDIENCE (general): ${brandTargetAudience}
 PRODUCT CATEGORY: ${productCategory}
 
 THIS PRODUCT:
@@ -35,30 +26,46 @@ SKU: ${product.sku}
 Features:
 ${featuresList}
 
-STEP 1: First, write a 2-3 sentence productTargetAudience describing who specifically buys THIS product, based on its features (this may be more specific/different than the general brand audience above).
+TASK 1: Research and describe the specific audience for THIS product.
+Use web search where helpful to ground claims (e.g. industry reports, forum discussions, reviews discussing who buys/uses products like this).
+Produce:
+- demographics: 3-4 bullet points about who buys this (role, industry, setup type, etc.), each with a "sourceUrl" linking to a page that supports/illustrates that point (a review, forum thread, industry article, etc.)
+- psychographics: 3-4 bullet points about their values, priorities, and mindset (no source needed)
+- jobsToBeDone: 3-4 bullet points describing the practical tasks/goals this product helps with
+- persona: a short persona description, MAXIMUM 6 sentences, giving a rough feel for who this person is (name optional, role, context, what they care about)
 
-STEP 2: Use web search to find 2-3 real, currently-sold competitor products that target a similar audience to the productTargetAudience you wrote (look for direct competitors to "${product.productName}" or similar products in "${productCategory}"). For each competitor product found:
-- Get its product name and a direct URL to its product detail page
-- Identify 2-4 main selling points / claims from that product's page (paraphrase, do not quote verbatim)
-- Characterize how that product's page talks about it (tone/voice: e.g. more technical/restrained, more playful, more premium/minimal, more value-driven)
-- Write a brand-agnostic, 1-2 sentence instruction describing how blending that competitor's stylistic traits into our brand voice would change our copy (concrete and actionable, do not require knowing the competitor's name to apply)
+TASK 2: Find exactly 3 real, currently-sold competitor products that target a similar audience to the one you just described (direct competitors to "${product.productName}" or similar products in "${productCategory}"). For each:
+- name: short competitor/brand name
+- productName: full product name
+- productUrl: direct URL to the product detail page
+- imageUrl: a direct URL to a product image if you can find one (best-effort, omit or leave empty if not confidently found)
+- price: the price shown on their page, as a string with currency symbol (e.g. "$249.99"), or omit if not found
+- summary: 2-3 sentence summary of the product in your own words (paraphrase, do not quote verbatim)
+- keyFeatures: 3-5 bullet points of its key features/claims (paraphrase)
 
 Respond ONLY with a single JSON object (no markdown, no preamble, no code fences) with exactly these keys:
 {
-  "productTargetAudience": "...",
+  "productTargetAudience": "2-3 sentence summary of who buys this product (for use elsewhere)",
+  "audience": {
+    "demographics": [{"point": "...", "sourceUrl": "https://..."}],
+    "psychographics": ["...", "..."],
+    "jobsToBeDone": ["...", "..."],
+    "persona": "..."
+  },
   "competitors": [
     {
-      "name": "Competitor brand/product short name",
-      "productName": "Full product name found",
-      "productUrl": "Direct URL to the product page",
-      "mainPoints": ["point 1", "point 2", "point 3"],
-      "voiceDescription": "1 sentence characterizing how this competitor's page talks about the product",
-      "blendInstruction": "1-2 sentence brand-agnostic style instruction as described above"
+      "name": "...",
+      "productName": "...",
+      "productUrl": "https://...",
+      "imageUrl": "https://...",
+      "price": "$...",
+      "summary": "...",
+      "keyFeatures": ["...", "..."]
     }
   ]
 }
 
-Include 2-3 items in "competitors". If you cannot find real competitor product pages, return an empty array for "competitors" rather than inventing URLs.`;
+"competitors" must contain exactly 3 items if possible (2 minimum). If you cannot find real product pages, return fewer items rather than inventing URLs.`;
 }
 
 export async function POST(req: NextRequest) {
@@ -81,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 3000,
+      max_tokens: 4000,
       messages: [{ role: "user", content: prompt }],
       tools: [
         {
@@ -110,7 +117,8 @@ export async function POST(req: NextRequest) {
 
     let result: {
       productTargetAudience?: string;
-      competitors?: CompetitorOption[];
+      audience?: Partial<AudienceProfile>;
+      competitors?: Partial<CompetitorProduct>[];
     };
     try {
       result = JSON.parse(cleaned);
@@ -121,20 +129,42 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const competitors = Array.isArray(result.competitors)
+    const audience: AudienceProfile = {
+      demographics: Array.isArray(result.audience?.demographics)
+        ? result.audience!.demographics!
+            .filter((d) => d && typeof d.point === "string")
+            .map((d) => ({ point: d.point, sourceUrl: typeof d.sourceUrl === "string" ? d.sourceUrl : undefined }))
+        : [],
+      psychographics: Array.isArray(result.audience?.psychographics)
+        ? result.audience!.psychographics!.filter((p) => typeof p === "string")
+        : [],
+      jobsToBeDone: Array.isArray(result.audience?.jobsToBeDone)
+        ? result.audience!.jobsToBeDone!.filter((j) => typeof j === "string")
+        : [],
+      persona: typeof result.audience?.persona === "string" ? result.audience!.persona! : "",
+    };
+
+    const competitors: CompetitorProduct[] = Array.isArray(result.competitors)
       ? result.competitors
           .filter(
-            (c) =>
-              c &&
-              typeof c.name === "string" &&
-              typeof c.productUrl === "string" &&
-              typeof c.blendInstruction === "string"
+            (c): c is CompetitorProduct =>
+              !!c && typeof c.name === "string" && typeof c.productUrl === "string"
           )
+          .map((c) => ({
+            name: c.name!,
+            productName: c.productName ?? "",
+            productUrl: c.productUrl!,
+            imageUrl: typeof c.imageUrl === "string" && c.imageUrl ? c.imageUrl : undefined,
+            price: typeof c.price === "string" && c.price ? c.price : undefined,
+            summary: c.summary ?? "",
+            keyFeatures: Array.isArray(c.keyFeatures) ? c.keyFeatures.filter((f) => typeof f === "string") : [],
+          }))
           .slice(0, 3)
       : [];
 
     return NextResponse.json({
       productTargetAudience: result.productTargetAudience ?? "",
+      audience,
       competitors,
     });
   } catch (err) {

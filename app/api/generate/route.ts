@@ -8,7 +8,8 @@ function buildPrompt(
   product: ProductInput,
   voice: BrandVoiceProfile,
   brandTargetAudience: string,
-  productTargetAudience: string
+  productTargetAudience: string,
+  marketContextFull: string
 ) {
   const featuresList = product.features
     .map(
@@ -17,8 +18,12 @@ function buildPrompt(
     )
     .join("\n\n");
 
-  const competitorSection = voice.competitorBlend?.trim()
-    ? `\nCOMPETITOR INFLUENCE TO BLEND IN:\n${voice.competitorBlend.trim()}\nBlend this influence into the brand voice above rather than replacing it — the result should still sound like this brand, with the competitor's stylistic traits mixed in.\n`
+  const styleAdjustmentSection = voice.styleAdjustment?.trim()
+    ? `\nSTYLE ADJUSTMENT:\n${voice.styleAdjustment.trim()}\nApply this adjustment on top of the brand voice above rather than replacing it. The result should still sound like this brand, shifted in the direction described.\n`
+    : "";
+
+  const marketSection = marketContextFull?.trim()
+    ? `\nCOMPETITIVE VOICE LANDSCAPE (context only, do not reference competitors by name in the output):\n${marketContextFull.trim()}\n`
     : "";
 
   return `You are an expert e-commerce copywriter. Write product marketing copy that matches the brand voice profile below, and is factually grounded in the product data provided. Do not invent specs, numbers, or claims that are not supported by the product data or by well-established facts about the underlying technology.
@@ -30,7 +35,7 @@ BRAND VOICE PROFILE:
 - Recurring themes: ${voice.recurringThemes}
 - Title style: ${voice.titleStyle}
 - Additional notes: ${voice.notes}
-${competitorSection}
+${styleAdjustmentSection}${marketSection}
 BRAND TARGET AUDIENCE: ${brandTargetAudience}
 PRODUCT TARGET AUDIENCE: ${productTargetAudience}
 
@@ -50,11 +55,12 @@ WRITING RULES (apply to all generated text):
 - For featureCopy titles specifically: lead with the spec, number, or named technology where relevant (specs and technology names should be easy to find by both readers and search/AI systems). But vary the GRAMMATICAL STRUCTURE of titles across the set, no single repeating pattern. Mix: a bare spec/name ("120Gbps Thunderbolt 5"), a full sentence with the spec as subject ("80Gbps on Every USB-C Port"), a spec plus use case ("M.2 PCIe Gen 4 x4 for Storage or AI Modules"), a comparison/alternative framing ("Three 4K Displays, or One at 8K 144Hz"), etc. No two consecutive titles should follow the same template.
 - For blogIdeas and educationalArticles: vary title structure too. Don't make every title follow an "X: Y" colon pattern, mix in questions, plain statements, "how to" phrasing, and direct claims.
 - Vary sentence and paragraph openers throughout. Don't start multiple paragraphs or sections with the same grammatical pattern (e.g. don't open every paragraph with a short fragment followed by elaboration).
+- longDescription must be SHORT: 2-3 paragraphs maximum, even if the product has many features. Be judicious about which features make it into prose versus being left to featureCopy. Prioritize concrete, quotable sound bites (specific numbers, named technologies, clear capability statements) that read well on their own if extracted, e.g. by AI assistants or search snippets, over broad scene-setting language. Every sentence should earn its place; cut anything that's purely atmospheric.
 
 TASK:
-Generate the following, all written in the brand voice above (with any competitor blend applied) and following the writing rules. Use the brand and product target audiences above as context to inform the copy, but do not restate them verbatim.
+Generate the following, all written in the brand voice above (with any style adjustment applied) and following the writing rules. Use the brand and product target audiences, and the competitive voice landscape, as context to inform the copy, but do not restate them verbatim and do not mention competitors directly.
 
-1. longDescription: A long-form product description (4-7 short paragraphs) weaving together the features and benefits into a cohesive narrative.
+1. longDescription: A SHORT product description (2-3 paragraphs maximum) weaving together the most important features and benefits into a cohesive narrative, written in clear, sound-bite-friendly language.
 
 2. featureCopy: An array with one object per feature listed above (same order), each with:
    - feature: the original feature name
@@ -77,6 +83,7 @@ export async function POST(req: NextRequest) {
     const voice: BrandVoiceProfile = body.voice;
     const brandTargetAudience: string = body.brandTargetAudience ?? "";
     const productTargetAudience: string = body.productTargetAudience ?? "";
+    const marketContextFull: string = body.marketContextFull ?? "";
 
     if (!product || !voice) {
       return NextResponse.json(
@@ -93,7 +100,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = getClient();
-    const prompt = buildPrompt(product, voice, brandTargetAudience, productTargetAudience);
+    const prompt = buildPrompt(product, voice, brandTargetAudience, productTargetAudience, marketContextFull);
 
     const response = await client.messages.create({
       model: MODEL,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClient, MODEL } from "@/lib/anthropic";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url, {
@@ -15,7 +15,6 @@ async function fetchPageText(url: string): Promise<string> {
   }
   const html = await res.text();
 
-  // Strip script/style tags and HTML tags to get rough text content
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -27,8 +26,110 @@ async function fetchPageText(url: string): Promise<string> {
     .replace(/\s+/g, " ")
     .trim();
 
-  // Cap to a reasonable size to control token usage
   return text.slice(0, 15000);
+}
+
+interface MarketContext {
+  toneVsMarket: string;
+  vocabularyVsMarket: string;
+  titleStyleVsMarket: string;
+  notesVsMarket: string;
+  fullContext: string;
+  technicalCasualPosition: number; // 0-4, 0 = most technical, 4 = most casual
+  restrainedBoldPosition: number; // 0-4, 0 = most restrained, 4 = most bold
+  technicalCasualMarkers: string[]; // 5 short labels
+  restrainedBoldMarkers: string[]; // 5 short labels
+}
+
+async function analyzeMarketContext(
+  client: ReturnType<typeof getClient>,
+  productCategory: string,
+  profile: Record<string, string>
+): Promise<MarketContext | null> {
+  const prompt = `You are a brand strategist researching a competitive market. A brand competes in this category: "${productCategory}".
+
+Their current brand voice:
+- Tone: ${profile.toneDescriptors}
+- Vocabulary: ${profile.vocabulary}
+- Sentence style: ${profile.sentenceStyle}
+- Title style: ${profile.titleStyle}
+- Notes: ${profile.notes}
+
+Use web search to research how OTHER brands in this category write their marketing and product copy (tone, vocabulary, title conventions). Look at a range, from more technical/restrained/engineering-led brands to more casual/playful/value-driven brands, and anything in between.
+
+Then produce:
+
+1. Brief "vs market" notes (1 short sentence each, for a UI summary) for: tone, vocabulary, title style, and general notes. Each should briefly say how this brand's approach compares to what's typical in the category (e.g. "More casual and benefit-led than most technical competitors, who lean on spec lists.").
+
+2. A fuller "fullContext" paragraph (4-6 sentences) synthesizing the competitive voice landscape in this category in more depth, for use as hidden context by an AI copywriter (not shown to the user directly).
+
+3. Two positioning sliders describing the range of voices seen in this category:
+   - technicalCasual: a spectrum from highly technical/spec-led/engineering language (0) to casual/playful/conversational language (4). Provide 5 short marker labels (one per position, each 1-3 words) describing what each position sounds like in this category, and indicate which position (0-4) this brand's CURRENT voice most closely matches.
+   - restrainedBold: a spectrum from restrained/minimal/premium-understated (0) to bold/hype-driven/energetic (4). Provide 5 short marker labels and indicate which position (0-4) this brand's CURRENT voice most closely matches.
+
+Respond ONLY with a JSON object (no markdown, no preamble) with exactly these fields:
+{
+  "toneVsMarket": "...",
+  "vocabularyVsMarket": "...",
+  "titleStyleVsMarket": "...",
+  "notesVsMarket": "...",
+  "fullContext": "...",
+  "technicalCasualMarkers": ["label0", "label1", "label2", "label3", "label4"],
+  "technicalCasualPosition": 0,
+  "restrainedBoldMarkers": ["label0", "label1", "label2", "label3", "label4"],
+  "restrainedBoldPosition": 0
+}`;
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 2000,
+    messages: [{ role: "user", content: prompt }],
+    tools: [
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+      },
+    ],
+  });
+
+  const textBlocks = response.content.filter((b) => b.type === "text");
+  const combinedText = textBlocks
+    .map((b) => (b.type === "text" ? b.text : ""))
+    .join("\n")
+    .trim();
+
+  const match = combinedText.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+
+  let cleaned = match[0].trim();
+  cleaned = cleaned.replace(/^```json\s*/i, "").replace(/```\s*$/i, "");
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    return {
+      toneVsMarket: String(parsed.toneVsMarket ?? ""),
+      vocabularyVsMarket: String(parsed.vocabularyVsMarket ?? ""),
+      titleStyleVsMarket: String(parsed.titleStyleVsMarket ?? ""),
+      notesVsMarket: String(parsed.notesVsMarket ?? ""),
+      fullContext: String(parsed.fullContext ?? ""),
+      technicalCasualMarkers: Array.isArray(parsed.technicalCasualMarkers)
+        ? parsed.technicalCasualMarkers.slice(0, 5).map(String)
+        : ["Technical", "Specific", "Balanced", "Friendly", "Casual"],
+      technicalCasualPosition: clampPosition(parsed.technicalCasualPosition),
+      restrainedBoldMarkers: Array.isArray(parsed.restrainedBoldMarkers)
+        ? parsed.restrainedBoldMarkers.slice(0, 5).map(String)
+        : ["Restrained", "Understated", "Balanced", "Confident", "Bold"],
+      restrainedBoldPosition: clampPosition(parsed.restrainedBoldPosition),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clampPosition(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (Number.isNaN(n)) return 2;
+  return Math.min(4, Math.max(0, Math.round(n)));
 }
 
 export async function POST(req: NextRequest) {
@@ -121,15 +222,24 @@ Respond ONLY with a JSON object (no markdown, no preamble) with exactly these fi
     const brandTargetAudience: string =
       typeof profile.brandTargetAudience === "string" ? profile.brandTargetAudience.trim() : "";
 
-    // Remove fields that aren't part of the editable voice profile shape
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { productCategory: _pc, brandTargetAudience: _bta, ...editableProfile } = profile;
+
+    let marketContext: MarketContext | null = null;
+    if (productCategory) {
+      try {
+        marketContext = await analyzeMarketContext(client, productCategory, editableProfile);
+      } catch {
+        marketContext = null;
+      }
+    }
 
     return NextResponse.json({
       profile: editableProfile,
       sourceUrl: normalizedUrl,
       productCategory,
       brandTargetAudience,
+      marketContext,
     });
   } catch (err) {
     return NextResponse.json(

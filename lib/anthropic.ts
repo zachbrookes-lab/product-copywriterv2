@@ -10,4 +10,7 @@ export function getClient() {
   return new Anthropic({ apiKey });
 }
 
-export const MODEL = "claude-sonnet-4-6";
+// Override with the ANTHROPIC_MODEL environment variable to switch models
+// without code changes. Useful for cheaper testing, e.g. set
+// ANTHROPIC_MODEL=claude-haiku-4-5-20251001 for lower-cost runs.
+export const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";

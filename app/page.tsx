@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { BrandVoiceProfile, GeneratedCopy, ProductInput } from "@/lib/types";
+import {
+  AudienceProfile,
+  BrandVoiceProfile,
+  CompetitorProduct,
+  GeneratedCopy,
+  MarketContext,
+  ProductInput,
+} from "@/lib/types";
 import { parseProductExcel } from "@/lib/excel";
 import BrandVoiceEditor from "./components/BrandVoiceEditor";
 import ResultsEditor from "./components/ResultsEditor";
@@ -13,17 +20,8 @@ const EMPTY_VOICE: BrandVoiceProfile = {
   recurringThemes: "",
   titleStyle: "",
   notes: "",
-  competitorBlend: "",
+  styleAdjustment: "",
 };
-
-interface CompetitorOption {
-  name: string;
-  productName: string;
-  productUrl: string;
-  mainPoints: string[];
-  voiceDescription: string;
-  blendInstruction: string;
-}
 
 type StepStatus = "pending" | "active" | "done";
 
@@ -36,18 +34,19 @@ export default function Home() {
   const [voiceSourceUrl, setVoiceSourceUrl] = useState<string | null>(null);
   const [brandTargetAudience, setBrandTargetAudience] = useState("");
   const [productCategory, setProductCategory] = useState("");
+  const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
 
   // Step 2: Product upload
   const [products, setProducts] = useState<ProductInput[]>([]);
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Step 3: Competitor research (per product)
+  // Step 3: Audience & competitor products research
   const [competitorLoading, setCompetitorLoading] = useState(false);
   const [competitorError, setCompetitorError] = useState<string | null>(null);
   const [productTargetAudience, setProductTargetAudience] = useState("");
-  const [competitorOptions, setCompetitorOptions] = useState<CompetitorOption[]>([]);
-  const [selectedCompetitor, setSelectedCompetitor] = useState<string | null>(null);
+  const [audience, setAudience] = useState<AudienceProfile | null>(null);
+  const [competitorProducts, setCompetitorProducts] = useState<CompetitorProduct[]>([]);
 
   // Step 4: Generation
   const [copy, setCopy] = useState<GeneratedCopy | null>(null);
@@ -75,10 +74,16 @@ export default function Home() {
       if (!res.ok) {
         throw new Error(data.error || "Failed to analyze brand voice");
       }
-      setVoice((prev) => ({ ...data.profile, competitorBlend: prev.competitorBlend }));
+      setVoice((prev) => ({
+        ...data.profile,
+        styleAdjustment: prev.styleAdjustment,
+        _sliderTechCasual: prev._sliderTechCasual,
+        _sliderRestrainedBold: prev._sliderRestrainedBold,
+      }));
       setVoiceSourceUrl(data.sourceUrl);
       setBrandTargetAudience(data.brandTargetAudience ?? "");
       setProductCategory(data.productCategory ?? "");
+      setMarketContext(data.marketContext ?? null);
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -110,8 +115,8 @@ export default function Home() {
 
   function resetCompetitorState() {
     setProductTargetAudience("");
-    setCompetitorOptions([]);
-    setSelectedCompetitor(null);
+    setAudience(null);
+    setCompetitorProducts([]);
     setCompetitorError(null);
   }
 
@@ -125,8 +130,8 @@ export default function Home() {
     if (!selectedProduct) return;
     setCompetitorLoading(true);
     setCompetitorError(null);
-    setCompetitorOptions([]);
-    setSelectedCompetitor(null);
+    setAudience(null);
+    setCompetitorProducts([]);
     try {
       const res = await fetch("/api/competitors", {
         method: "POST",
@@ -140,24 +145,15 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Competitor research failed");
+        throw new Error(data.error || "Research failed");
       }
       setProductTargetAudience(data.productTargetAudience ?? "");
-      setCompetitorOptions(data.competitors ?? []);
+      setAudience(data.audience ?? null);
+      setCompetitorProducts(data.competitors ?? []);
     } catch (err) {
       setCompetitorError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setCompetitorLoading(false);
-    }
-  }
-
-  function handleSelectCompetitor(option: CompetitorOption) {
-    if (selectedCompetitor === option.name) {
-      setSelectedCompetitor(null);
-      setVoice((prev) => ({ ...prev, competitorBlend: "" }));
-    } else {
-      setSelectedCompetitor(option.name);
-      setVoice((prev) => ({ ...prev, competitorBlend: option.blendInstruction }));
     }
   }
 
@@ -175,6 +171,7 @@ export default function Home() {
           voice,
           brandTargetAudience,
           productTargetAudience,
+          marketContextFull: marketContext?.fullContext ?? "",
         }),
       });
       const data = await res.json();
@@ -218,7 +215,9 @@ export default function Home() {
     }
   }
 
-  const voiceReady = Object.values(voice).some((v) => v.trim() !== "");
+  const voiceReady = Object.entries(voice).some(
+    ([k, v]) => !k.startsWith("_") && typeof v === "string" && v.trim() !== ""
+  );
   const step1Status: StepStatus = voiceReady ? "done" : "active";
   const step2Status: StepStatus =
     products.length > 0 ? "done" : voiceReady ? "active" : "pending";
@@ -236,11 +235,12 @@ export default function Home() {
   return (
     <div className="min-h-screen pb-24" style={{ background: "#e9e9ec" }}>
       <header className="max-w-4xl mx-auto px-6 pt-8 pb-2">
-        <div className="flex items-center gap-2.5 mb-1.5">
-          <div className="w-7 h-7 rounded-md bg-[#1a1a1a] flex items-center justify-center">
-            <BoltIcon />
+        <div className="flex items-center gap-3 mb-3">
+          <HyperBadge />
+          <div>
+            <h1 className="text-lg font-medium tracking-tight leading-tight">Product Copywriter</h1>
+            <p className="text-xs text-[var(--color-muted)]">for Hyper</p>
           </div>
-          <h1 className="text-lg font-medium tracking-tight">Product Copywriter</h1>
         </div>
         <p className="text-sm text-[var(--color-muted)]">
           Generate on-brand product copy, feature highlights, audience
@@ -289,7 +289,7 @@ export default function Home() {
               <p className="text-sm">{brandTargetAudience}</p>
             </div>
           )}
-          <BrandVoiceEditor profile={voice} onChange={setVoice} />
+          <BrandVoiceEditor profile={voice} onChange={setVoice} marketContext={marketContext} />
         </section>
 
         {/* STEP 2: Product Upload */}
@@ -338,13 +338,12 @@ export default function Home() {
           )}
         </section>
 
-        {/* STEP 3: Competitor research */}
+        {/* STEP 3: Audience & competitor products */}
         <section className="step-card p-6">
-          <StepHeader number={3} title="Audience & competitors" status={step3Status} />
+          <StepHeader number={3} title="Audience & competitor products" status={step3Status} />
           <p className="text-sm text-[var(--color-muted)] mb-4">
-            Identify who buys this specific product and find real competitor
-            products targeting a similar audience. Optionally blend in a
-            competitor&apos;s style.
+            Identify who buys this specific product, and find real competitor
+            products targeting a similar audience.
           </p>
           <button
             onClick={handleFindCompetitors}
@@ -352,7 +351,7 @@ export default function Home() {
             className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50 hover:opacity-90 transition"
             style={{ background: "#3C3FBC" }}
           >
-            {competitorLoading ? "Researching..." : "Find audience & competitors"}
+            {competitorLoading ? "Researching..." : "Research audience & competitors"}
           </button>
           {!selectedProduct && (
             <p className="text-xs text-[var(--color-muted)] mt-2">
@@ -363,86 +362,127 @@ export default function Home() {
             <p className="text-sm text-red-600 mt-3">{competitorError}</p>
           )}
 
-          {productTargetAudience && (
-            <div className="mt-4 mb-4 p-3 rounded bg-[var(--color-paper)] border border-[var(--color-line)]">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-1">
-                Product target audience
-              </p>
-              <p className="text-sm">{productTargetAudience}</p>
+          {audience && (
+            <div className="mt-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-2">
+                  Demographics
+                </p>
+                <ul className="space-y-1.5">
+                  {audience.demographics.map((d, i) => (
+                    <li key={i} className="text-sm flex items-start gap-2">
+                      <span className="text-[var(--color-muted)] mt-0.5">•</span>
+                      <span>
+                        {d.point}
+                        {d.sourceUrl && (
+                          <>
+                            {" "}
+                            <a
+                              href={d.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs underline"
+                              style={{ color: "#3C3FBC" }}
+                            >
+                              source
+                            </a>
+                          </>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-2">
+                    Psychographics
+                  </p>
+                  <ul className="space-y-1.5">
+                    {audience.psychographics.map((p, i) => (
+                      <li key={i} className="text-sm flex items-start gap-2">
+                        <span className="text-[var(--color-muted)] mt-0.5">•</span>
+                        <span>{p}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-2">
+                    Jobs to be done
+                  </p>
+                  <ul className="space-y-1.5">
+                    {audience.jobsToBeDone.map((j, i) => (
+                      <li key={i} className="text-sm flex items-start gap-2">
+                        <span className="text-[var(--color-muted)] mt-0.5">•</span>
+                        <span>{j}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {audience.persona && (
+                <div className="p-3 rounded bg-[var(--color-paper)] border border-[var(--color-line)]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-1">
+                    Persona
+                  </p>
+                  <p className="text-sm leading-relaxed">{audience.persona}</p>
+                </div>
+              )}
             </div>
           )}
 
-          {competitorOptions.length > 0 && (
-            <div className="mt-4">
-              <p className="text-sm font-medium mb-1">
-                Optional: blend in a competitor-inspired style
-              </p>
-              <p className="text-xs text-[var(--color-muted)] mb-3">
-                Click a card to apply that style to your brand voice. Click
-                again to remove it.
-              </p>
-              <div className="space-y-3">
-                {competitorOptions.map((option) => {
-                  const isSelected = selectedCompetitor === option.name;
-                  return (
-                    <button
-                      key={option.name}
-                      type="button"
-                      onClick={() => handleSelectCompetitor(option)}
-                      className={`w-full text-left p-3 rounded-md border transition ${
-                        isSelected
-                          ? "ring-1"
-                          : "border-[var(--color-line)] bg-white hover:border-[#3C3FBC]/50"
-                      }`}
-                      style={
-                        isSelected
-                          ? {
-                              borderColor: "#3C3FBC",
-                              borderWidth: 2,
-                              background: "rgba(60,63,188,0.05)",
-                              ["--tw-ring-color" as string]: "#3C3FBC",
-                            }
-                          : undefined
-                      }
+          {competitorProducts.length > 0 && (
+            <div className="mt-6">
+              <p className="text-sm font-medium mb-3">Competitor products</p>
+              <div className="grid sm:grid-cols-3 gap-3">
+                {competitorProducts.map((c, i) => (
+                  <div key={i} className="border border-[var(--color-line)] rounded-md p-3 bg-white flex flex-col">
+                    {c.imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={c.imageUrl}
+                        alt={c.productName || c.name}
+                        className="w-full h-24 object-contain mb-2 rounded bg-[var(--color-paper)]"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                    )}
+                    <div className="flex items-baseline justify-between gap-2 mb-1">
+                      <p className="text-sm font-semibold leading-tight">{c.name}</p>
+                      {c.price && (
+                        <span className="text-xs font-medium whitespace-nowrap" style={{ color: "#3C3FBC" }}>
+                          {c.price}
+                        </span>
+                      )}
+                    </div>
+                    {c.productName && (
+                      <p className="text-xs text-[var(--color-muted)] mb-2">{c.productName}</p>
+                    )}
+                    {c.summary && (
+                      <p className="text-xs mb-2 leading-relaxed">{c.summary}</p>
+                    )}
+                    {c.keyFeatures.length > 0 && (
+                      <ul className="text-xs text-[var(--color-muted)] list-disc list-inside space-y-0.5 mb-2">
+                        {c.keyFeatures.map((f, j) => (
+                          <li key={j}>{f}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <a
+                      href={c.productUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs underline mt-auto"
+                      style={{ color: "#3C3FBC" }}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-sm font-semibold">
-                          {option.name}
-                          {option.productName ? ` — ${option.productName}` : ""}
-                        </p>
-                        {isSelected && (
-                          <span className="text-xs font-medium" style={{ color: "#3C3FBC" }}>
-                            Selected
-                          </span>
-                        )}
-                      </div>
-                      {option.voiceDescription && (
-                        <p className="text-xs text-[var(--color-muted)] mb-2">
-                          {option.voiceDescription}
-                        </p>
-                      )}
-                      {option.mainPoints?.length > 0 && (
-                        <ul className="text-xs text-[var(--color-muted)] list-disc list-inside mb-2 space-y-0.5">
-                          {option.mainPoints.map((point, i) => (
-                            <li key={i}>{point}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {option.productUrl && (
-                        <a
-                          href={option.productUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-xs underline"
-                          style={{ color: "#3C3FBC" }}
-                        >
-                          View product page
-                        </a>
-                      )}
-                    </button>
-                  );
-                })}
+                      View product page
+                    </a>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -452,8 +492,8 @@ export default function Home() {
         <section className="step-card p-6">
           <StepHeader number={4} title="Generate copy" status={step4Status} />
           <p className="text-sm text-[var(--color-muted)] mb-4">
-            Generate a long description, per-feature copy, a premium image
-            headline, and content ideas in your brand voice.
+            Generate a short product description, per-feature copy, a premium
+            image headline, and content ideas in your brand voice.
           </p>
           <button
             onClick={handleGenerate}
@@ -537,11 +577,16 @@ function StepHeader({
   );
 }
 
-function BoltIcon() {
+function HyperBadge() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
-    </svg>
+    <div
+      className="flex items-center justify-center px-2.5 py-1.5 rounded-md"
+      style={{ background: "#1a1a1a" }}
+    >
+      <span className="text-white font-bold text-sm tracking-wide" style={{ letterSpacing: "0.05em" }}>
+        HYPER
+      </span>
+    </div>
   );
 }
 

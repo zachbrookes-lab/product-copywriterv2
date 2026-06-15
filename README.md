@@ -93,4 +93,16 @@ setup needed.
 
 Using Claude Sonnet 4.6 at standard API rates, generating the full output set
 for one product costs roughly **$0.03–0.06** per run. Brand voice analysis is
-a separate, smaller call (~$0.01 or less).
+a separate, smaller call (~$0.01 or less). The "Find audience & competitors"
+step uses web search and costs a bit more, roughly **$0.02–0.05** per product
+depending on how many searches the model runs.
+
+### Cheaper testing with Haiku
+
+To reduce costs while testing (e.g. iterating on prompts or UI), set the
+`ANTHROPIC_MODEL` environment variable to `claude-haiku-4-5-20251001` in
+`.env.local` (or in Vercel's environment variables). Haiku is roughly a third
+of Sonnet's cost. Output quality and adherence to the brand voice/writing
+rules will be noticeably lower with Haiku, so switch back to
+`claude-sonnet-4-6` (or remove the variable, which is the default) for
+production-quality output.
