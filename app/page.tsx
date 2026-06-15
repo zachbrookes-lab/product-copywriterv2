@@ -64,10 +64,12 @@ export default function Home() {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Step 3: Audience & competitor products research
-  const [competitorLoading, setCompetitorLoading] = useState(false);
-  const [competitorError, setCompetitorError] = useState<string | null>(null);
+  const [audienceLoading, setAudienceLoading] = useState(false);
+  const [audienceError, setAudienceError] = useState<string | null>(null);
   const [productTargetAudience, setProductTargetAudience] = useState("");
   const [audience, setAudience] = useState<AudienceProfile | null>(null);
+  const [competitorLoading, setCompetitorLoading] = useState(false);
+  const [competitorError, setCompetitorError] = useState<string | null>(null);
   const [competitorProducts, setCompetitorProducts] = useState<CompetitorProduct[]>([]);
 
   // Step 4: Generation
@@ -162,6 +164,7 @@ export default function Home() {
   function resetCompetitorState() {
     setProductTargetAudience("");
     setAudience(null);
+    setAudienceError(null);
     setCompetitorProducts([]);
     setCompetitorError(null);
   }
@@ -172,14 +175,16 @@ export default function Home() {
     resetCompetitorState();
   }
 
-  async function handleFindCompetitors() {
+  async function handleResearchAudience() {
     if (!selectedProduct) return;
-    setCompetitorLoading(true);
-    setCompetitorError(null);
+    setAudienceLoading(true);
+    setAudienceError(null);
     setAudience(null);
+    // Clear competitor products too, since they may depend on the audience
     setCompetitorProducts([]);
+    setCompetitorError(null);
     try {
-      const res = await fetch("/api/competitors", {
+      const res = await fetch("/api/audience", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -191,10 +196,36 @@ export default function Home() {
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        throw new Error(data.error || "Research failed");
+        throw new Error(data.error || "Audience research failed");
       }
       setProductTargetAudience(data.productTargetAudience ?? "");
       setAudience(data.audience ?? null);
+    } catch (err) {
+      setAudienceError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setAudienceLoading(false);
+    }
+  }
+
+  async function handleFindCompetitorProducts() {
+    if (!selectedProduct) return;
+    setCompetitorLoading(true);
+    setCompetitorError(null);
+    setCompetitorProducts([]);
+    try {
+      const res = await fetch("/api/competitor-products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product: selectedProduct,
+          productCategory,
+          productTargetAudience,
+        }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data.error || "Competitor research failed");
+      }
       setCompetitorProducts(data.competitors ?? []);
     } catch (err) {
       setCompetitorError(err instanceof Error ? err.message : "Unknown error");
@@ -407,24 +438,24 @@ export default function Home() {
         <section className="step-card p-6">
           <StepHeader number={3} title="Audience & competitor products" status={step3Status} />
           <p className="text-sm text-[var(--color-muted)] mb-4">
-            Identify who buys this specific product, and find real competitor
-            products targeting a similar audience.
+            Identify who buys this specific product, then optionally find real
+            competitor products targeting a similar audience.
           </p>
           <button
-            onClick={handleFindCompetitors}
-            disabled={!selectedProduct || competitorLoading}
+            onClick={handleResearchAudience}
+            disabled={!selectedProduct || audienceLoading}
             className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50 hover:opacity-90 transition"
             style={{ background: "#3C3FBC" }}
           >
-            {competitorLoading ? "Researching..." : "Research audience & competitors"}
+            {audienceLoading ? "Researching..." : "Research audience"}
           </button>
           {!selectedProduct && (
             <p className="text-xs text-[var(--color-muted)] mt-2">
               Upload and select a product first.
             </p>
           )}
-          {competitorError && (
-            <p className="text-sm text-red-600 mt-3">{competitorError}</p>
+          {audienceError && (
+            <p className="text-sm text-red-600 mt-3">{audienceError}</p>
           )}
 
           {audience && (
@@ -496,6 +527,19 @@ export default function Home() {
                   <p className="text-sm leading-relaxed">{audience.persona}</p>
                 </div>
               )}
+
+              <div>
+                <button
+                  onClick={handleFindCompetitorProducts}
+                  disabled={competitorLoading}
+                  className="px-4 py-2 rounded text-sm font-medium border border-[var(--color-line)] bg-white hover:bg-[var(--color-paper)] transition disabled:opacity-50"
+                >
+                  {competitorLoading ? "Searching..." : "Find competitor products"}
+                </button>
+                {competitorError && (
+                  <p className="text-sm text-red-600 mt-2">{competitorError}</p>
+                )}
+              </div>
             </div>
           )}
 
