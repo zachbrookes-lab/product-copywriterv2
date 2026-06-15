@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --color-ink: #1a1d23;
-  --color-paper: #f7f5f1;
-  --color-accent: #c4502d;
-  --color-line: #d8d3ca;
-  --color-muted: #8a8378;
+  --color-ink: #1a1a1a;
+  --color-paper: #f1f1f3;
+  --color-accent: #3C3FBC;
+  --color-line: #d9d9dd;
+  --color-muted: #767680;
 }
 
 body {
-  background: var(--color-paper);
+  background: #e9e9ec;
   color: var(--color-ink);
 }
 
 .step-card {
   background: white;
   border: 1px solid var(--color-line);
-  border-radius: 0.25rem;
+  border-radius: 0.5rem;
 }

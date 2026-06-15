@@ -84,12 +84,14 @@ Respond ONLY with a JSON object (no markdown, no preamble) with exactly these fi
   "sentenceStyle": "1-2 sentences describing typical sentence structure and rhythm (e.g. short punchy headlines followed by spec-driven detail)",
   "recurringThemes": "Comma-separated list of recurring themes/values (e.g. sustainability, speed, simplicity, AI-readiness)",
   "titleStyle": "1-2 sentences describing how product/feature titles tend to be written",
-  "notes": "Any other notable observations about the brand voice"
+  "notes": "Any other notable observations about the brand voice",
+  "brandTargetAudience": "2-3 sentences describing the overall brand's target audience based on this content",
+  "productCategory": "A short (3-8 word) description of the primary product category/market this brand competes in, suitable for searching for competitors (e.g. 'USB-C docks and charging accessories')"
 }`;
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1000,
+      max_tokens: 1200,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -114,7 +116,21 @@ Respond ONLY with a JSON object (no markdown, no preamble) with exactly these fi
       );
     }
 
-    return NextResponse.json({ profile, sourceUrl: normalizedUrl });
+    const productCategory: string =
+      typeof profile.productCategory === "string" ? profile.productCategory.trim() : "";
+    const brandTargetAudience: string =
+      typeof profile.brandTargetAudience === "string" ? profile.brandTargetAudience.trim() : "";
+
+    // Remove fields that aren't part of the editable voice profile shape
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { productCategory: _pc, brandTargetAudience: _bta, ...editableProfile } = profile;
+
+    return NextResponse.json({
+      profile: editableProfile,
+      sourceUrl: normalizedUrl,
+      productCategory,
+      brandTargetAudience,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },

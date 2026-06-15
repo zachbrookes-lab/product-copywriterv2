@@ -4,7 +4,12 @@ import { BrandVoiceProfile, ProductInput } from "@/lib/types";
 
 export const maxDuration = 120;
 
-function buildPrompt(product: ProductInput, voice: BrandVoiceProfile) {
+function buildPrompt(
+  product: ProductInput,
+  voice: BrandVoiceProfile,
+  brandTargetAudience: string,
+  productTargetAudience: string
+) {
   const featuresList = product.features
     .map(
       (f, i) =>
@@ -26,6 +31,9 @@ BRAND VOICE PROFILE:
 - Title style: ${voice.titleStyle}
 - Additional notes: ${voice.notes}
 ${competitorSection}
+BRAND TARGET AUDIENCE: ${brandTargetAudience}
+PRODUCT TARGET AUDIENCE: ${productTargetAudience}
+
 PRODUCT:
 SKU: ${product.sku}
 Product Name: ${product.productName}
@@ -44,7 +52,7 @@ WRITING RULES (apply to all generated text):
 - Vary sentence and paragraph openers throughout. Don't start multiple paragraphs or sections with the same grammatical pattern (e.g. don't open every paragraph with a short fragment followed by elaboration).
 
 TASK:
-Generate the following, all written in the brand voice above (with any competitor blend applied) and following the writing rules:
+Generate the following, all written in the brand voice above (with any competitor blend applied) and following the writing rules. Use the brand and product target audiences above as context to inform the copy, but do not restate them verbatim.
 
 1. longDescription: A long-form product description (4-7 short paragraphs) weaving together the features and benefits into a cohesive narrative.
 
@@ -55,15 +63,11 @@ Generate the following, all written in the brand voice above (with any competito
 
 3. premiumHeadline: A very short (3-6 word) headline suitable for overlay text on a premium lifestyle/hero image.
 
-4. brandTargetAudience: 2-3 sentences describing the overall brand's target audience based on the voice profile and themes.
+4. blogIdeas: An array of exactly 5 blog post title ideas relevant to this product's use cases, technology, and audience.
 
-5. productTargetAudience: 2-3 sentences describing the specific target audience for THIS product based on its features.
+5. educationalArticles: An array of exactly 5 educational/technical deep-dive article title ideas about the underlying technology in this product (e.g. explaining standards, specs, or how things work).
 
-6. blogIdeas: An array of exactly 5 blog post title ideas relevant to this product's use cases, technology, and audience.
-
-7. educationalArticles: An array of exactly 5 educational/technical deep-dive article title ideas about the underlying technology in this product (e.g. explaining standards, specs, or how things work).
-
-Respond ONLY with a single JSON object (no markdown formatting, no preamble, no code fences) with exactly these keys: longDescription, featureCopy, premiumHeadline, brandTargetAudience, productTargetAudience, blogIdeas, educationalArticles.`;
+Respond ONLY with a single JSON object (no markdown formatting, no preamble, no code fences) with exactly these keys: longDescription, featureCopy, premiumHeadline, blogIdeas, educationalArticles.`;
 }
 
 export async function POST(req: NextRequest) {
@@ -71,6 +75,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const product: ProductInput = body.product;
     const voice: BrandVoiceProfile = body.voice;
+    const brandTargetAudience: string = body.brandTargetAudience ?? "";
+    const productTargetAudience: string = body.productTargetAudience ?? "";
 
     if (!product || !voice) {
       return NextResponse.json(
@@ -87,7 +93,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = getClient();
-    const prompt = buildPrompt(product, voice);
+    const prompt = buildPrompt(product, voice, brandTargetAudience, productTargetAudience);
 
     const response = await client.messages.create({
       model: MODEL,
@@ -118,6 +124,10 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Merge in the audiences that were generated/confirmed earlier in the flow
+    result.brandTargetAudience = brandTargetAudience;
+    result.productTargetAudience = productTargetAudience;
 
     return NextResponse.json({ result });
   } catch (err) {
